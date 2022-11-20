@@ -9,8 +9,7 @@ services:
     volumes:
       - ../:/usr/src/app/
     environment:
-      - DATABASE_DSN=postgres://postgres:postgres@db:5432/praktikum?sslmode=disable
-      - MIGRATIONS_PATH=file://internal/app/storage/migrations/
+      - dsn=postgres://postgres:postgres@db:5432/praktikum?sslmode=disable
     ports:
       - "8080:8080"
     depends_on:
