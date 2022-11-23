@@ -3,10 +3,12 @@ package proto
 import (
 	"context"
 	"github.com/belamov/ypgo-password-manager/internal/app/services"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"strings"
 )
 
 // AuthInterceptor is a server interceptor for authentication and authorization
@@ -27,12 +29,13 @@ func (interceptor *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		err := interceptor.authorize(ctx, info.FullMethod)
+		log.Info().Msgf("--> unary interceptor: %s", info.FullMethod)
+		userID, err := interceptor.authorize(ctx, info.FullMethod)
 		if err != nil {
 			return nil, err
 		}
 
-		return handler(ctx, req)
+		return handler(context.WithValue(ctx, "userID", userID), req)
 	}
 }
 
@@ -44,7 +47,7 @@ func (interceptor *AuthInterceptor) Stream() grpc.StreamServerInterceptor {
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
 	) error {
-		err := interceptor.authorize(stream.Context(), info.FullMethod)
+		_, err := interceptor.authorize(stream.Context(), info.FullMethod)
 		if err != nil {
 			return err
 		}
@@ -53,22 +56,26 @@ func (interceptor *AuthInterceptor) Stream() grpc.StreamServerInterceptor {
 	}
 }
 
-func (interceptor *AuthInterceptor) authorize(ctx context.Context, method string) error {
+func (interceptor *AuthInterceptor) authorize(ctx context.Context, method string) (int, error) {
+	if strings.HasPrefix(method, "/Auth") {
+		return 0, nil
+	}
+
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return status.Errorf(codes.Unauthenticated, "metadata is not provided")
+		return 0, status.Errorf(codes.Unauthenticated, "metadata is not provided")
 	}
 
 	values := md["authorization"]
 	if len(values) == 0 {
-		return status.Errorf(codes.Unauthenticated, "authorization token is not provided")
+		return 0, status.Errorf(codes.Unauthenticated, "authorization token is not provided")
 	}
 
 	accessToken := values[0]
-	_, err := interceptor.jwtManager.Verify(accessToken)
+	claims, err := interceptor.jwtManager.Verify(accessToken)
 	if err != nil {
-		return status.Errorf(codes.Unauthenticated, "access token is invalid: %v", err)
+		return 0, status.Errorf(codes.Unauthenticated, "access token is invalid: %v", err)
 	}
 
-	return nil
+	return claims.Id, nil
 }

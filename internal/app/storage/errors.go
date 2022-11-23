@@ -1,6 +1,9 @@
 package storage
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/belamov/ypgo-password-manager/internal/app/models"
+)
 
 type NotUniqueUsernameError struct {
 	Err      error
@@ -39,5 +42,45 @@ func NewUserNotFoundError(username string, err error) error {
 	return &UserNotFoundError{
 		Err:      err,
 		Username: username,
+	}
+}
+
+type NotUniqueSecretError struct {
+	Err      error
+	Metadata models.SecretMetadata
+}
+
+func (err *NotUniqueSecretError) Error() string {
+	return fmt.Sprintf("metadato of secret is not unique (%q)", err.Metadata)
+}
+
+func (err *NotUniqueSecretError) Unwrap() error {
+	return err.Err
+}
+
+func NewNotUniqueSecret(metadata models.SecretMetadata, err error) error {
+	return &NotUniqueSecretError{
+		Err:      err,
+		Metadata: metadata,
+	}
+}
+
+type SecretNotFoundError struct {
+	Err      error
+	Metadata models.SecretMetadata
+}
+
+func (err *SecretNotFoundError) Error() string {
+	return fmt.Sprintf("secret not found (%q)", err.Metadata)
+}
+
+func (err *SecretNotFoundError) Unwrap() error {
+	return err.Err
+}
+
+func NewSecretNotFoundError(metadata models.SecretMetadata, err error) error {
+	return &SecretNotFoundError{
+		Err:      err,
+		Metadata: metadata,
 	}
 }

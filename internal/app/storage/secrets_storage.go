@@ -12,53 +12,50 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type UsersRepository struct {
+type SecretsRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewUserRepository(ctx context.Context, dsn string) (*UsersRepository, error) {
+func NewSecretsRepository(ctx context.Context, dsn string) (*SecretsRepository, error) {
 	pool, err := pgxpool.Connect(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	return &UsersRepository{
+	return &SecretsRepository{
 		pool: pool,
 	}, nil
 }
 
-func (repo *UsersRepository) CreateNew(username string, hashedPassword string) (*models.User, error) {
-	user := &models.User{
-		Username:       username,
-		HashedPassword: hashedPassword,
-	}
-
+func (repo *SecretsRepository) CreateNew(encryptedData []byte, metadata models.SecretMetadata) error {
 	conn, err := repo.pool.Acquire(context.Background())
 	if err != nil {
 		log.Error().Err(err).Msg("couldnt acquire connection from pool")
-		return nil, err
+		return err
 	}
 
 	err = conn.QueryRow(
 		context.Background(),
-		"insert into users (username, hashed_password) values ($1, $2) returning id",
-		user.Username,
-		user.HashedPassword,
-	).Scan(&user.Id)
+		"insert into secrets (secret_data, user_id, secret_type, secret_name) values ($1, $2, $3, $4)",
+		encryptedData,
+		metadata.UserID,
+		metadata.Type,
+		metadata.Name,
+	).Scan()
 
 	conn.Release()
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		if pgErr.Code == pgerrcode.UniqueViolation {
-			return nil, NewNotUniqueUsernameError(username, err)
+			return NewNotUniqueSecret(metadata, err)
 		}
 	}
-	return user, err
+	return nil
 }
 
-func (repo *UsersRepository) Find(username string) (*models.User, error) {
-	var user models.User
+func (repo *SecretsRepository) FindSecretData(metadata models.SecretMetadata) ([]byte, error) {
+	var data []byte
 
 	conn, err := repo.pool.Acquire(context.Background())
 	if err != nil {
@@ -68,15 +65,17 @@ func (repo *UsersRepository) Find(username string) (*models.User, error) {
 
 	err = conn.QueryRow(
 		context.Background(),
-		"select id, username, hashed_password from users where username=$1",
-		username,
-	).Scan(&user.Id, &user.Username, &user.HashedPassword)
+		"select secret_data from secrets where secret_type=$1 and user_id=$2 and secret_name=$3",
+		metadata.Type,
+		metadata.UserID,
+		metadata.Name,
+	).Scan(&data)
 
 	conn.Release()
 
 	if err == pgx.ErrNoRows {
-		return nil, NewUserNotFoundError(username, err)
+		return nil, NewSecretNotFoundError(metadata, err)
 	}
 
-	return &user, err
+	return data, err
 }
